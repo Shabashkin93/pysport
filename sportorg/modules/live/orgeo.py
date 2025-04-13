@@ -229,6 +229,7 @@ async def create(url, data, race_data, log, *, session):
             "ResultSFR",
             "ResultManual",
             "ResultRfidImpinj",
+            "ResultRfidYanpodo",
             "ResultSrpid",
         ]:
             person_data = _get_person(item, race_data)
@@ -272,6 +273,7 @@ async def create_online_cp(url, data, race_data, log, *, session):
             "ResultSFR",
             "ResultManual",
             "ResultRfidImpinj",
+            "ResultRfidYanpodo",
             "ResultSrpid",
         ]:
             try:
@@ -355,6 +357,7 @@ async def delete(url, data, race_data, log, *, session):
             "ResultSFR",
             "ResultManual",
             "ResultRfidImpinj",
+            "ResultRfidYanpodo",
             "ResultSrpid",
         ]:
             person_data = _get_person(item, race_data)
