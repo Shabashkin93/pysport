@@ -1,24 +1,18 @@
-import ctypes
-import os
 import time
 import logging
 from queue import Queue, Empty
 from threading import Event, Thread, main_thread
-from ctypes import byref, c_int, c_byte
-import platform
-import os
-import sys
+from ctypes import byref, c_int
 import threading
 from datetime import datetime
 import asyncio
+import hid
 
 from random import randint
 from time import sleep
-import serial
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import uvicorn
-from contextlib import asynccontextmanager
 
 from PySide6.QtCore import QThread, Signal
 from sportorg.common.otime import OTime
@@ -27,86 +21,35 @@ from sportorg.models import memory
 from sportorg.models.memory import race
 from sportorg import config
 
-
+# Yanpodo VID/PID
+YANPODO_VID = 0x1A86
+YANPODO_PID = 0xE010
 class YanpodoCommand:
     def __init__(self, command, data=None):
         self.command = command
         self.data = data
 
-
 class YanpodoThread(QThread):
     def __init__(self, interface, port, queue, stop_event, logger, debug=False):
         super().__init__()
         self.setObjectName(self.__class__.__name__)
-        self.interface = interface  # "USB" or "COM"
-        self.port = port            # COM port 
+        self.interface = interface  # "USB", "COM", or "TCP"
+        self.device = None
+        self.port = port
         self._queue = queue
         self._stop_event = stop_event
         self._logger = logger
         self._debug = debug
-
         self.timeout_list = {}
         self.timeout = race().get_setting("readout_duplicate_timeout", 15000)
+        self._fastapi_app = None
+        self._uvicorn_server = None
 
-        # Определяем базовый путь к DLL
-        base_dir = os.path.dirname(config.base_dir("sportorg/libs/yanpodo/"))
-
-        if platform.system() == "Windows":
-            # Загружаем соответствующую DLL
-            lib_path_usb = os.path.join(
-                base_dir,
-                "X64",
-                "USB",
-                "SWHidApi.dll",
-            )
-            lib_path_com = os.path.join(
-                base_dir,
-                "X64",
-                "Com",
-                "SWComApi.dll",
-            )
-
-            if self.interface == "USB":
-                self.reader_lib = ctypes.windll.LoadLibrary(lib_path_usb)
-            elif self.interface == "COM":
-                self.reader_lib = ctypes.windll.LoadLibrary(lib_path_com)
-            else:
-                raise ValueError(f"Unsupported interface type: {self.interface}")
-        elif platform.system() == "Linux":
-            # 1. Явно загружаем libusb в глобальном режиме (RTLD_GLOBAL)
-            try:
-                libusb = ctypes.CDLL(
-                    "/usr/lib/x86_64-linux-gnu/libusb-1.0.so",
-                    mode=ctypes.RTLD_GLOBAL,
-                )
-            except Exception as e:
-                print(f"Error libusb: {e}")
-                exit(1)
-            # Загружаем .so для Linux
-            lib_path_usb = os.path.join(
-                base_dir,
-                "Linux_X64",
-                "USB",
-                "libSWHidApi.so",
-            )
-            lib_path_com = os.path.join(
-                base_dir,
-                "Linux_X64",
-                "Com",
-                "libSWComApi.so",
-            )
-            try:
-                if self.interface == "USB":
-                    self.reader_lib = ctypes.CDLL(lib_path_usb)
-                elif self.interface == "COM":
-                    self.reader_lib = ctypes.CDLL(lib_path_com)
-                else:
-                    raise ValueError(f"Unsupported interface type: {self.interface}")
-            except Exception as e:
-                print(f"Ошибка загрузки {self.interface} библиотеки: {e}")
-                exit(1)
-        else:
-            raise RuntimeError("Unsupported platform")
+    def stop_timers(self):
+        if hasattr(self, "_epc_timers"):
+            for timer in self._epc_timers.values():
+                timer.cancel()
+            self._epc_timers.clear()
 
     def run(self):
         try:
@@ -114,6 +57,9 @@ class YanpodoThread(QThread):
                 self._initialize_usb()
             elif self.interface == "COM":
                 self._initialize_com()
+            elif self.interface == "TCP":
+                self._run_tcp_server()
+                return  # TCP server loop is blocking
 
             self._logger.info(
                 f"Yanpodo reader initialized successfully on {self.interface} interface."
@@ -123,25 +69,60 @@ class YanpodoThread(QThread):
                 self._read_tags()
 
         except Exception as e:
-            self._logger.error(f"Error in YanpodoThread: {e}")
+            self._logger.error(f"Error in YanpodoThread {threading.current_thread().name}: {e}")
         finally:
+            self.stop_timers()
             self._logger.debug("Stopping YanpodoThread")
 
-    def _initialize_usb(self):
-        if platform.system() == "Windows":
-            if self.reader_lib.SWHid_GetUsbCount() == 0:
-                raise RuntimeError("No USB devices found")
-            if self.reader_lib.SWHid_OpenDevice(0) != 1:
-                raise RuntimeError("Failed to open USB device")
-        if platform.system() == "Linux":
-            if self.reader_lib.SWHid_OpenDevice() != 1:
-                raise RuntimeError("Failed to open USB device")
-        self.reader_lib.SWHid_ClearTagBuf()
+    def _initialize_usb(self):        
+        self.device = hid.device()
+        self.device.open_path(self.port)
+        self._logger.debug(f"Connected to device: {self.device.get_product_string()}")
+
+        # Установка времени ожидания чтения (в мс)
+        self.device.set_nonblocking(True)
 
     def _initialize_com(self):
         if self.reader_lib.SWCom_OpenDevice(self.port, 115200) != 1:
             raise RuntimeError(f"Failed to open COM device on port {self.port}")
         self.reader_lib.SWCom_ClearTagBuf()
+
+    def _run_tcp_server(self):
+        # FastAPI app for TCP server
+        app = FastAPI()
+
+        class TcpCardData(BaseModel):
+            # epc: str
+            # time: str = None
+            epc: str
+            finish_time: str
+            deviceId: str
+
+        @app.post("/rfid")
+        async def receive_tag(data: TcpCardData):
+            # self._logger.info(f"TCP data {data}")
+            arr_buffer = bytes.fromhex(data.epc)
+            # if len(arr_buffer) > 15:
+            #     self._process_tags(arr_buffer[16:31], tag_count=1)
+            # elif len(arr_buffer) == 15 and arr_buffer[0] == 0x0F:
+            
+            self._process_tags(arr_buffer, tag_count=1, time=data.finish_time, deviceSN=data.deviceId)
+            return {"status": "ok"}
+
+        config = uvicorn.Config(app, host="0.0.0.0", port=self.port, log_level="info", loop="asyncio")
+        self._uvicorn_server = uvicorn.Server(config)
+        self._logger.info(f"TCP FastAPI server started on port {self.port}")
+        import asyncio
+
+        async def shutdown_trigger():
+            while not self._stop_event.is_set():
+                await asyncio.sleep(0.2)
+            await self._uvicorn_server.shutdown()
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.create_task(self._uvicorn_server.serve())
+        loop.run_until_complete(shutdown_trigger())
 
     def _read_tags(self):
         arr_buffer = bytes(9182)
@@ -149,9 +130,15 @@ class YanpodoThread(QThread):
         tag_number = c_int(0)
 
         if self.interface == "USB":
-            ret = self.reader_lib.SWHid_GetTagBuf(
-                arr_buffer, byref(tag_length), byref(tag_number)
-            )
+            for _ in range(10):
+                response = self.device.read(64)  # Максимальная длина пакета
+                if response:
+                    self._logger.debug(f"Received: {' '.join(f'{b:02X}' for b in response)}")
+                    arr_buffer = bytes(response)
+                    tag_number.value = 1
+                    break
+                time.sleep(0.1)
+
         elif self.interface == "COM":
             ret = self.reader_lib.SWCom_GetTagBuf(
                 arr_buffer, byref(tag_length), byref(tag_number)
@@ -186,47 +173,46 @@ class YanpodoThread(QThread):
     #         self._queue.put(YanpodoCommand("card_data", card_data), timeout=1)
     #         i_length += b_pack_length + 1
 
-    def _process_tags(self, arr_buffer, tag_count):
+    def _process_tags(self, arr_buffer, tag_count, time=None, deviceSN = None):
         # Для хранения последних card_data и таймеров по epc
         if not hasattr(self, "_epc_timers"):
             self._epc_timers = {}
             self._epc_data = {}
 
+        # Если получаем RAW UBR пакет, то в обработку идут только байты с 16 по 31
+        if len(arr_buffer) > 15 and arr_buffer[0] == 0x20:
+            tag_buffer = arr_buffer[16:31]
+        elif len(arr_buffer) == 15 and arr_buffer[0] == 0x0F:
+            tag_buffer = arr_buffer
+
+        num = ""
+        if deviceSN is None:
+            for i in range(1, 8):
+                num += hex(arr_buffer[7 + i]).replace("0x", "").zfill(2)
+            deviceSN = num.upper()
+        else:
+            deviceSN = str(deviceSN).upper() # для MAC-адресов полученных TCP-сервером
+
         i_length = 0
         for _ in range(tag_count):
-            b_pack_length = arr_buffer[i_length]
+            b_pack_length = tag_buffer[i_length]
+            print(f"b_pack_length: {b_pack_length}, i_length: {i_length}, tag_buffer: {' '.join(f'{b:02X}' for b in tag_buffer)}")
+
             epc = ""
             for i in range(2, b_pack_length - 1):
-                epc += hex(arr_buffer[1 + i_length + i]).replace("0x", "").zfill(2)
+                epc += hex(tag_buffer[1 + i_length + i]).replace("0x", "").zfill(2)
 
-            card_data = {"epc": epc, "time": OTime.now()}
-            self._logger.info(f"Tag read: {card_data}")
+            if time is None:
+                time = OTime.now()
 
-            card_id = card_data["epc"]
-            card_time = card_data["time"]
+            card_data = {"epc": epc, "time": time, "sn": deviceSN}
+            self._logger.info(f"[{threading.current_thread().name}] Tag read: {card_data}")
 
-            # Сохраняем только результат с максимальным временем
-            prev_data = self._epc_data.get(card_id)
-            if prev_data is None or card_time > prev_data["time"]:
-                self._epc_data[card_id] = card_data
-
-            # Если таймер уже есть, сбрасываем его
-            if card_id in self._epc_timers:
-                self._epc_timers[card_id].cancel()
-
-            # Запускаем новый таймер на 3 секунды
-            def send_result(epc=card_id):
-                data = self._epc_data.pop(epc, None)
-                self._epc_timers.pop(epc, None)
-                if data:
-                    try:
-                        self._queue.put(YanpodoCommand("card_data", data), timeout=1)
-                    except Exception as e:
-                        self._logger.error(f"Failed to put card_data: {e}")
-
-            timer = threading.Timer(3, send_result)
-            self._epc_timers[card_id] = timer
-            timer.start()
+            # Просто отправляем card_data в очередь без проверки дубликатов
+            try:
+                self._queue.put(YanpodoCommand("card_data", card_data), timeout=1)
+            except Exception as e:
+                self._logger.error(f"Failed to put card_data: {e}")
 
             i_length += b_pack_length + 1
 
@@ -240,14 +226,43 @@ class ResultThread(QThread):
         self._queue = queue
         self._stop_event = stop_event
         self._logger = logger
+        self._epc_data = {}    # card_id -> card_data
+        self._epc_timers = {}  # card_id -> timer
 
     def run(self):
         while not self._stop_event.is_set():
             try:
                 cmd = self._queue.get(timeout=5)
                 if cmd.command == "card_data":
-                    result = self._get_result(cmd.data)
-                    self.data_sender.emit(result)
+                    card_data = cmd.data
+                    card_id = card_data["epc"]
+                    card_time = card_data["time"]
+                    timeout = race().get_setting("readout_duplicate_timeout", 15000)/1000
+
+                    # Сохраняем только результат с максимальным временем
+                    prev_data = self._epc_data.get(card_id)
+                    if prev_data is None or card_time > prev_data["time"]:
+                        self._epc_data[card_id] = card_data
+
+                    # Если таймер уже есть, сбрасываем его
+                    if card_id in self._epc_timers:
+                        self._epc_timers[card_id].cancel()
+
+                    # Запускаем новый таймер на timeout
+                    def send_result(epc=card_id):
+                        data = self._epc_data.pop(epc, None)
+                        self._epc_timers.pop(epc, None)
+                        if data:
+                            try:
+                                result = self._get_result(data)
+                                self.data_sender.emit(result)
+                            except Exception as e:
+                                self._logger.error(f"Failed to emit result: {e}")
+
+                    timer = threading.Timer(timeout, send_result)
+                    self._epc_timers[card_id] = timer
+                    timer.start()
+
             except Empty:
                 if not main_thread().is_alive() or self._stop_event.is_set():
                     break
@@ -274,10 +289,10 @@ class ResultThread(QThread):
         return result
 
 
-class CardData(BaseModel):
-    card_number: str
-    finish_time: str
-    deviceId: str
+# class CardData(BaseModel):
+#     card_number: str
+#     finish_time: str
+#     deviceId: str
 
 
 @singleton
@@ -285,9 +300,8 @@ class YanpodoClient:
     def __init__(self):
         self._queue = Queue()
         self._stop_event = Event()
-        self._yanpodo_thread = None
+        self._yanpodo_threads = {}  # path -> thread
         self._result_thread = None
-        self.port = None
         self._logger = logging.getLogger("YanpodoClient")
         self._call_back = None
 
@@ -321,52 +335,54 @@ class YanpodoClient:
             self._start_result_thread()
 
     def is_alive(self):
+        # Считаем, что клиент жив, если есть хотя бы один активный поток
+        any_thread_alive = any(
+            thread is not None and not thread.isFinished()
+            for thread in self._yanpodo_threads.values()
+        )
         return (
-            self._yanpodo_thread is not None
+            any_thread_alive
             and self._result_thread is not None
-            and not self._yanpodo_thread.isFinished()
             and not self._result_thread.isFinished()
         )
 
     def start(self, interface="USB"):
-        self.port = self.choose_port()
         self._stop_event.clear()
-        self._start_yanpodo_thread(interface)
+        paths = []
+        for dev in hid.enumerate():
+            if dev['vendor_id'] == YANPODO_VID and dev['product_id'] == YANPODO_PID:
+                # Пропускаем интерфейсы с KBD в path (эмуляция клавиатуры)
+                path_str = dev['path'].decode() if isinstance(dev['path'], bytes) else dev['path']
+                if "KBD" in path_str or "kbd" in path_str:
+                    continue
+                paths.append(dev['path'])
+                print(f"Found device: {dev['path']}")
+        for path in paths:
+            if (
+                path not in self._yanpodo_threads
+                or self._yanpodo_threads[path] is None
+                or self._yanpodo_threads[path].isFinished()
+            ):
+                thread = YanpodoThread(
+                    interface, path, self._queue, self._stop_event, self._logger
+                )
+                thread.start()
+                self._yanpodo_threads[path] = thread
+
+        # Всегда запускаем TCP сервер на отдельном порту (например, 9000)
+        tcp_port = 8000
+        if (
+            "TCP" not in self._yanpodo_threads
+            or self._yanpodo_threads["TCP"] is None
+            or self._yanpodo_threads["TCP"].isFinished()
+        ):
+            tcp_thread = YanpodoThread(
+                "TCP", tcp_port, self._queue, self._stop_event, self._logger
+            )
+            tcp_thread.start()
+            self._yanpodo_threads["TCP"] = tcp_thread
+
         self._start_result_thread()
-
-        # Запуск сервера в отдельном потоке
-        server_thread = threading.Thread(target=self._run_server, daemon=True)
-        server_thread.start()
-
-    def _run_server(self):
-        """Запускает сервер FastAPI в отдельном потоке."""
-        asyncio.run(self._start_server())
-
-    async def _start_server(self):
-        app = FastAPI()
-
-        @app.post("/submit")
-        async def receive_data(data: CardData):
-            card_data = {
-                "epc": data.card_number,
-                "time": data.finish_time, #OTime.now(),
-            }
-            # Обработка данных в отдельном потоке
-            threading.Thread(
-                target=self._process_remote_data, args=(card_data,)
-            ).start()
-            return {"status": "received"}
-
-        config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
-        server = uvicorn.Server(config)
-        await server.serve()
-
-    def _process_remote_data(self, card_data):
-        """Обрабатывает данные, полученные от удаленных считывателей."""
-        arr_buffer = bytes(
-            [len(card_data["epc"])] + list(card_data["epc"].encode())
-        )
-        self._yanpodo_thread._process_tags(arr_buffer, tag_count=1)
 
     def toggle(self, interface="USB"):
         if self.is_alive():
@@ -379,9 +395,14 @@ class YanpodoClient:
 
     def stop(self):
         self._stop_event.set()
-        if self._yanpodo_thread:
-            self._yanpodo_thread.wait()
-
+        for thread in self._yanpodo_threads.values():
+            if thread:
+                thread.quit() 
+                finished = thread.wait(2)
+                self._logger.debug(f"Thread {thread.objectName()} finished: {finished}")
+        self._yanpodo_threads.clear()
+        if self._result_thread:
+            self._result_thread.wait(10)
 
 if __name__ == "__main__":
     client = YanpodoClient()

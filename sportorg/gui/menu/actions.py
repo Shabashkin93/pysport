@@ -616,6 +616,7 @@ class YanpodoReadoutAction(Action, metaclass=ActionFactory):
         YanpodoClient().toggle(
             interface="USB"
         )  # Можно указать "COM" для работы через COM-порт
+        # YanpodoClient().toggle(usb_count=3, tcp_port=9000)
         time.sleep(0.5)
         self.app.interval()
 
