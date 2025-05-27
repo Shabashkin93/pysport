@@ -6,6 +6,7 @@ kanban-plugin: board
 
 ## Backlog
 
+- [ ] [[Freez chronos tab]]
 
 
 ## Sprint
