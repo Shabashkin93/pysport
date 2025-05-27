@@ -1,25 +1,31 @@
 import hid
 import time
 
-VENDOR_ID = 0x1a86  # Замените на VID вашего устройства
-PRODUCT_ID = 0xe010 # Замените на PID вашего устройства
+VENDOR_ID = 0x1A86
+PRODUCT_ID = 0xE010
+
+# For testing:
+# poetry run python3 .\tests\test_yanpodo_hid.py
 
 # Пример данных, которые отправим (должны соответствовать спецификации устройства)
-# Например: [53 57 00 03 FF 10 44] — первый байт 0x00 — это Report ID
+# Например: [00 07 53 57 00 03 FF 10 44] — первый байт 0x00 — это Report ID
 test_data = [0x00, 0x07, 0x53, 0x57, 0x00, 0x03, 0xFF, 0x10, 0x44]
 
 
 def list_hid_paths():
     paths = []
     for dev in hid.enumerate():
-        if dev['vendor_id'] == VENDOR_ID and dev['product_id'] == PRODUCT_ID:
+        if dev["vendor_id"] == VENDOR_ID and dev["product_id"] == PRODUCT_ID:
             # Пропускаем интерфейсы с KBD в path (эмуляция клавиатуры)
-            path_str = dev['path'].decode() if isinstance(dev['path'], bytes) else dev['path']
+            path_str = (
+                dev["path"].decode() if isinstance(dev["path"], bytes) else dev["path"]
+            )
             if "KBD" in path_str or "kbd" in path_str:
                 continue
-            paths.append(dev['path'])
-            print(dev['path'])
+            paths.append(dev["path"])
+            print(dev["path"])
     return paths
+
 
 try:
     paths = list_hid_paths()
@@ -47,4 +53,3 @@ try:
 
 except Exception as e:
     print(f"Error: {e}")
-

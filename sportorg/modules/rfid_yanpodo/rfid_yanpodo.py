@@ -1,15 +1,12 @@
 import time
 import logging
 from queue import Queue, Empty
-from threading import Event, Thread, main_thread
+from threading import Event, main_thread
 from ctypes import byref, c_int
 import threading
-from datetime import datetime
-import asyncio
 import hid
 
 from random import randint
-from time import sleep
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import uvicorn
@@ -19,15 +16,17 @@ from sportorg.common.otime import OTime
 from sportorg.common.singleton import singleton
 from sportorg.models import memory
 from sportorg.models.memory import race
-from sportorg import config
 
 # Yanpodo VID/PID
 YANPODO_VID = 0x1A86
 YANPODO_PID = 0xE010
+
+
 class YanpodoCommand:
     def __init__(self, command, data=None):
         self.command = command
         self.data = data
+
 
 class YanpodoThread(QThread):
     def __init__(self, interface, port, queue, stop_event, logger, debug=False):
@@ -62,24 +61,25 @@ class YanpodoThread(QThread):
                 return  # TCP server loop is blocking
 
             self._logger.info(
-                f"Yanpodo reader initialized successfully on {self.interface} interface."
+                f"Yanpodo {threading.current_thread().name} initialized successfully on {self.interface} interface."
             )
 
             while not self._stop_event.is_set():
                 self._read_tags()
 
         except Exception as e:
-            self._logger.error(f"Error in YanpodoThread {threading.current_thread().name}: {e}")
+            self._logger.error(
+                f"Error in YanpodoThread {threading.current_thread().name}: {e}"
+            )
         finally:
             self.stop_timers()
             self._logger.debug("Stopping YanpodoThread")
 
-    def _initialize_usb(self):        
+    def _initialize_usb(self):
         self.device = hid.device()
         self.device.open_path(self.port)
         self._logger.debug(f"Connected to device: {self.device.get_product_string()}")
 
-        # Установка времени ожидания чтения (в мс)
         self.device.set_nonblocking(True)
 
     def _initialize_com(self):
@@ -92,24 +92,21 @@ class YanpodoThread(QThread):
         app = FastAPI()
 
         class TcpCardData(BaseModel):
-            # epc: str
-            # time: str = None
             epc: str
             finish_time: str
             deviceId: str
 
         @app.post("/rfid")
         async def receive_tag(data: TcpCardData):
-            # self._logger.info(f"TCP data {data}")
             arr_buffer = bytes.fromhex(data.epc)
-            # if len(arr_buffer) > 15:
-            #     self._process_tags(arr_buffer[16:31], tag_count=1)
-            # elif len(arr_buffer) == 15 and arr_buffer[0] == 0x0F:
-            
-            self._process_tags(arr_buffer, tag_count=1, time=data.finish_time, deviceSN=data.deviceId)
+            self._process_tags(
+                arr_buffer, tag_count=1, time=data.finish_time, deviceSN=data.deviceId
+            )
             return {"status": "ok"}
 
-        config = uvicorn.Config(app, host="0.0.0.0", port=self.port, log_level="info", loop="asyncio")
+        config = uvicorn.Config(
+            app, host="0.0.0.0", port=self.port, log_level="info", loop="asyncio"
+        )
         self._uvicorn_server = uvicorn.Server(config)
         self._logger.info(f"TCP FastAPI server started on port {self.port}")
         import asyncio
@@ -133,7 +130,9 @@ class YanpodoThread(QThread):
             for _ in range(10):
                 response = self.device.read(64)  # Максимальная длина пакета
                 if response:
-                    self._logger.debug(f"Received: {' '.join(f'{b:02X}' for b in response)}")
+                    self._logger.debug(
+                        f"Received: {' '.join(f'{b:02X}' for b in response)}"
+                    )
                     arr_buffer = bytes(response)
                     tag_number.value = 1
                     break
@@ -149,31 +148,7 @@ class YanpodoThread(QThread):
         if tag_number.value > 0:
             self._process_tags(arr_buffer, tag_number.value)
 
-    # def _process_tags(self, arr_buffer, tag_count):
-    #     i_length = 0
-    #     for _ in range(tag_count):
-    #         b_pack_length = arr_buffer[i_length]
-    #         epc = ""
-    #         for i in range(2, b_pack_length - 1):
-    #             epc += hex(arr_buffer[1 + i_length + i]).replace("0x", "").zfill(2)
-
-    #         card_data = {"epc": epc, "time": OTime.now()}
-    #         self._logger.info(f"Tag read: {card_data}")  # Логируем данные метки
-
-    #         # Обработка дубликатов
-    #         card_id = card_data["epc"]
-    #         card_time = card_data["time"]
-    #         if card_id in self.timeout_list:
-    #             old_time = self.timeout_list[card_id]
-    #             if card_time - old_time < OTime(msec=self.timeout):
-    #                 self._logger.debug(f"Duplicated result for tag {card_id}, ignoring")
-    #                 continue
-
-    #         self.timeout_list[card_id] = card_time
-    #         self._queue.put(YanpodoCommand("card_data", card_data), timeout=1)
-    #         i_length += b_pack_length + 1
-
-    def _process_tags(self, arr_buffer, tag_count, time=None, deviceSN = None):
+    def _process_tags(self, arr_buffer, tag_count, time=None, deviceSN=None):
         # Для хранения последних card_data и таймеров по epc
         if not hasattr(self, "_epc_timers"):
             self._epc_timers = {}
@@ -191,12 +166,14 @@ class YanpodoThread(QThread):
                 num += hex(arr_buffer[7 + i]).replace("0x", "").zfill(2)
             deviceSN = num.upper()
         else:
-            deviceSN = str(deviceSN).upper() # для MAC-адресов полученных TCP-сервером
+            deviceSN = str(deviceSN).upper()  # для MAC-адресов полученных TCP-сервером
 
         i_length = 0
         for _ in range(tag_count):
             b_pack_length = tag_buffer[i_length]
-            print(f"b_pack_length: {b_pack_length}, i_length: {i_length}, tag_buffer: {' '.join(f'{b:02X}' for b in tag_buffer)}")
+            self._logger.debug(
+                f"b_pack_length: {b_pack_length}, i_length: {i_length}, tag_buffer: {' '.join(f'{b:02X}' for b in tag_buffer)}"
+            )
 
             epc = ""
             for i in range(2, b_pack_length - 1):
@@ -206,7 +183,9 @@ class YanpodoThread(QThread):
                 time = OTime.now()
 
             card_data = {"epc": epc, "time": time, "sn": deviceSN}
-            self._logger.info(f"[{threading.current_thread().name}] Tag read: {card_data}")
+            self._logger.info(
+                f"[{threading.current_thread().name}] Tag read: {card_data}"
+            )
 
             # Просто отправляем card_data в очередь без проверки дубликатов
             try:
@@ -226,7 +205,7 @@ class ResultThread(QThread):
         self._queue = queue
         self._stop_event = stop_event
         self._logger = logger
-        self._epc_data = {}    # card_id -> card_data
+        self._epc_data = {}  # card_id -> card_data
         self._epc_timers = {}  # card_id -> timer
 
     def run(self):
@@ -237,7 +216,9 @@ class ResultThread(QThread):
                     card_data = cmd.data
                     card_id = card_data["epc"]
                     card_time = card_data["time"]
-                    timeout = race().get_setting("readout_duplicate_timeout", 15000)/1000
+                    timeout = (
+                        race().get_setting("readout_duplicate_timeout", 5000) / 1000
+                    )
 
                     # Сохраняем только результат с максимальным временем
                     prev_data = self._epc_data.get(card_id)
@@ -289,12 +270,6 @@ class ResultThread(QThread):
         return result
 
 
-# class CardData(BaseModel):
-#     card_number: str
-#     finish_time: str
-#     deviceId: str
-
-
 @singleton
 class YanpodoClient:
     def __init__(self):
@@ -303,6 +278,7 @@ class YanpodoClient:
         self._yanpodo_threads = {}  # path -> thread
         self._result_thread = None
         self._logger = logging.getLogger("YanpodoClient")
+        self._logger.setLevel(logging.INFO)
         self._call_back = None
 
     def set_call(self, value):
@@ -350,13 +326,17 @@ class YanpodoClient:
         self._stop_event.clear()
         paths = []
         for dev in hid.enumerate():
-            if dev['vendor_id'] == YANPODO_VID and dev['product_id'] == YANPODO_PID:
+            if dev["vendor_id"] == YANPODO_VID and dev["product_id"] == YANPODO_PID:
                 # Пропускаем интерфейсы с KBD в path (эмуляция клавиатуры)
-                path_str = dev['path'].decode() if isinstance(dev['path'], bytes) else dev['path']
+                path_str = (
+                    dev["path"].decode()
+                    if isinstance(dev["path"], bytes)
+                    else dev["path"]
+                )
                 if "KBD" in path_str or "kbd" in path_str:
                     continue
-                paths.append(dev['path'])
-                print(f"Found device: {dev['path']}")
+                paths.append(dev["path"])
+                self._logger.debug(f"Found device: {dev['path']}")
         for path in paths:
             if (
                 path not in self._yanpodo_threads
@@ -395,14 +375,50 @@ class YanpodoClient:
 
     def stop(self):
         self._stop_event.set()
-        for thread in self._yanpodo_threads.values():
+        time.sleep(0.2)
+        for thread_key, thread in list(self._yanpodo_threads.items()):
             if thread:
-                thread.quit() 
-                finished = thread.wait(2)
-                self._logger.debug(f"Thread {thread.objectName()} finished: {finished}")
+                try:
+                    # Wait with timeout to avoid blocking indefinitely
+                    if thread.isRunning():
+                        finished = thread.wait(3000)
+                        self._logger.debug(
+                            f"Thread {threading.current_thread().name} finished: {finished}"
+                        )
+
+                    # If thread didn't finish, try to terminate it more forcefully
+                    if not finished and thread.isRunning():
+                        self._logger.warning(
+                            f"Thread {threading.current_thread().name} did not finish gracefully, terminating"
+                        )
+                        thread.terminate()
+                        thread.wait(1000)  # Give it another second
+                except Exception as e:
+                    self._logger.error(f"Error stopping thread {thread_key}: {e}")
+                # Remove the thread reference
+                self._yanpodo_threads[thread_key] = None
+        # Clear the thread dictionary
         self._yanpodo_threads.clear()
-        if self._result_thread:
-            self._result_thread.wait(10)
+
+        # Handle the result thread similarly
+        if self._result_thread and self._result_thread.isRunning():
+            try:
+                finished = self._result_thread.wait(3000)
+                self._logger.debug(f"Result thread finished: {finished}")
+
+                if not finished and self._result_thread.isRunning():
+                    self._logger.warning(
+                        "Result thread did not finish gracefully, terminating"
+                    )
+                    self._result_thread.terminate()
+                    self._result_thread.wait(1000)
+            except Exception as e:
+                self._logger.error(f"Error stopping result thread: {e}")
+
+            self._result_thread = None
+
+        self._logger.info("YanpodoClient stopped")
+
 
 if __name__ == "__main__":
     client = YanpodoClient()
