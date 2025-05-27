@@ -1,0 +1,187 @@
+{
+  "main": {
+    "id": "a234e799ad87ac58",
+    "type": "split",
+    "children": [
+      {
+        "id": "a898144d9f3698c3",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "dc9a6aa41bfd33d4",
+            "type": "leaf",
+            "state": {
+              "type": "kanban",
+              "state": {
+                "file": "JIRA.md",
+                "kanbanViewState": {
+                  "kanban-plugin": "board",
+                  "list-collapse": [
+                    false,
+                    false,
+                    false,
+                    false,
+                    false
+                  ]
+                }
+              },
+              "icon": "lucide-trello",
+              "title": "JIRA"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "1926a9d6f4b01d60",
+    "type": "split",
+    "children": [
+      {
+        "id": "c75fea87d744419e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ebacc32881d0b8b0",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "d712d284b21f4a69",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "11b550ad1cc515ea",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "a1ab0943cb370c33",
+    "type": "split",
+    "children": [
+      {
+        "id": "b0dcdfd4bbebc260",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2bfd8cd60227fa43",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "JIRA.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for JIRA"
+            }
+          },
+          {
+            "id": "7bfab4c9dade40ca",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "JIRA.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from JIRA"
+            }
+          },
+          {
+            "id": "bdbea96e1fa71af0",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "b62c0b2751f4b959",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "JIRA.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of JIRA"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "obsidian-kanban:Create new board": false,
+      "obsidian-excalidraw-plugin:New drawing": false
+    }
+  },
+  "active": "dc9a6aa41bfd33d4",
+  "lastOpenFiles": [
+    "Untitled.md",
+    "JIRA.md",
+    "Welcome.md"
+  ]
+}
