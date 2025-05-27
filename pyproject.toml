@@ -5,7 +5,7 @@ description = "SportOrg, python, sportident, orienteering"
 authors = ["Danil Akhtarov <daxartio@gmail.com>"]
 
 [tool.poetry.dependencies]
-python = "~3.8.1"
+python = ">=3.13.0, <3.14"
 pywin32 = {version="^228", optional = true}
 pyImpinj = {version="^1.2", optional = true}
 playsound = {version="=1.2.2", optional = true}
@@ -31,7 +31,7 @@ hidapi = "^0.14.0.post4"
 pyusb = "1.2.1"
 
 [tool.poetry.group.dev.dependencies]
-cx_Freeze = "^6.15.16"
+cx_Freeze = "^8.3"
 mypy = "^1.4"
 poethepoet = ">=0.22,<0.31"
 pytest = ">=7.4,<9.0"
