@@ -20,7 +20,15 @@ include_files = [
     config.STYLE_DIR,
     config.COMMIT_VERSION_FILE,
 ]
-includes = ["atexit", "codecs", "playsound", "pyImpinj"]
+includes = [
+    "atexit", "codecs", "playsound", "pyImpinj",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.http.h11_impl",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.protocols.websockets.wsproto_impl",
+    "uvicorn.lifespan.on",
+    "uvicorn.lifespan.off",
+]
 excludes = ["Tkinter", "unittest", "test", "pydoc"]
 
 build_exe_options = {

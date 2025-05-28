@@ -104,8 +104,31 @@ class YanpodoThread(QThread):
             )
             return {"status": "ok"}
 
+        uvicorn_log_config = {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "plain": {
+                    "format": "%(levelname)s %(name)s %(message)s"
+                }
+            },
+            "handlers": {
+                "default": {
+                    "formatter": "plain",
+                    "class": "logging.StreamHandler",
+                    "stream": "ext://sys.stdout",
+                }
+            },
+            "loggers": {
+                "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
+    }
+        }
         config = uvicorn.Config(
-            app, host="0.0.0.0", port=self.port, log_level="info", loop="asyncio"
+            app, host="0.0.0.0", port=self.port, log_level="info", loop="asyncio",
+            http="h11",
+            log_config=uvicorn_log_config
         )
         self._uvicorn_server = uvicorn.Server(config)
         self._logger.info(f"TCP FastAPI server started on port {self.port}")
