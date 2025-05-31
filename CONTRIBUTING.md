@@ -57,7 +57,7 @@ poe test
 
 ### cx_Freeze
 
-`python builder.py build`
+`poetry run python builder.py build`
 
 ## Commit Message Format
 

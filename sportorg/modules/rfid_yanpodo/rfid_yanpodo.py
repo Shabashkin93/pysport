@@ -1,3 +1,4 @@
+import datetime
 import time
 import logging
 from queue import Queue, Empty
@@ -34,6 +35,7 @@ class YanpodoThread(QThread):
         self.setObjectName(self.__class__.__name__)
         self.interface = interface  # "USB", "COM", or "TCP"
         self.device = None
+        self.serial_number = ''  # Serial number of the device
         self.port = port
         self._queue = queue
         self._stop_event = stop_event
@@ -61,7 +63,7 @@ class YanpodoThread(QThread):
                 return  # TCP server loop is blocking
 
             self._logger.info(
-                f"Yanpodo {threading.current_thread().name} initialized successfully on {self.interface} interface."
+                f"Yanpodo {self.serial_number} initialized successfully on {self.interface} interface."
             )
 
             while not self._stop_event.is_set():
@@ -69,11 +71,11 @@ class YanpodoThread(QThread):
 
         except Exception as e:
             self._logger.error(
-                f"Error in YanpodoThread {threading.current_thread().name}: {e}"
+                f"Error in YanpodoThread {self.serial_number}: {e}"
             )
         finally:
             self.stop_timers()
-            self._logger.debug("Stopping YanpodoThread")
+            self._logger.info("Stopping YanpodoThread")
 
     def _initialize_usb(self):
         self.device = hid.device()
@@ -81,6 +83,22 @@ class YanpodoThread(QThread):
         self._logger.debug(f"Connected to device: {self.device.get_product_string()}")
 
         self.device.set_nonblocking(True)
+
+        CMD_READ_SYSTEM_PARAM = [0x00, 0x07, 0x53, 0x57, 0x00, 0x03, 0xFF, 0x10, 0x44]
+
+        # Отправка данных (через interrupt OUT transfer за кулисами)
+        bytes_written = self.device.write(CMD_READ_SYSTEM_PARAM)
+
+        # Ждем и читаем ответ (через interrupt IN transfer за кулисами)
+        for _ in range(10):
+            response = self.device.read(64)  # Максимальная длина пакета
+            if response:
+                for i in range(10, 17):
+                    self.serial_number += hex(response[i]).replace("0x", "").zfill(2)
+                self.serial_number = self.serial_number.upper()
+                self._logger.debug(f"DevSN: {self.serial_number}")
+                break
+            time.sleep(0.1)
 
     def _initialize_com(self):
         if self.reader_lib.SWCom_OpenDevice(self.port, 115200) != 1:
@@ -108,13 +126,14 @@ class YanpodoThread(QThread):
             "version": 1,
             "disable_existing_loggers": False,
             "formatters": {
-                "plain": {
-                    "format": "%(levelname)s %(name)s %(message)s"
+                "custom": {
+                    "format": "%(levelname)s %(message)s",
+                    "datefmt": "%Y-%m-%d %H:%M:%S"
                 }
             },
             "handlers": {
                 "default": {
-                    "formatter": "plain",
+                    "formatter": "custom",
                     "class": "logging.StreamHandler",
                     "stream": "ext://sys.stdout",
                 }
@@ -122,9 +141,14 @@ class YanpodoThread(QThread):
             "loggers": {
                 "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
                 "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
-                "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
-    }
+                "uvicorn.access": {
+                    "handlers": ["default"],
+                    "level": "WARNING",
+                    "propagate": False,
+                },
+            }
         }
+        
         config = uvicorn.Config(
             app, host="0.0.0.0", port=self.port, log_level="info", loop="asyncio",
             http="h11",
@@ -172,6 +196,12 @@ class YanpodoThread(QThread):
             self._process_tags(arr_buffer, tag_number.value)
 
     def _process_tags(self, arr_buffer, tag_count, time=None, deviceSN=None):
+
+        if deviceSN is not None:
+            deviceSN = str(deviceSN).upper() # для MAC-адресов полученных TCP-сервером
+        else:
+            deviceSN = str(self.serial_number).upper()
+
         # Для хранения последних card_data и таймеров по epc
         if not hasattr(self, "_epc_timers"):
             self._epc_timers = {}
@@ -182,14 +212,11 @@ class YanpodoThread(QThread):
             tag_buffer = arr_buffer[16:31]
         elif len(arr_buffer) == 15 and arr_buffer[0] == 0x0F:
             tag_buffer = arr_buffer
-
-        num = ""
-        if deviceSN is None:
-            for i in range(1, 8):
-                num += hex(arr_buffer[7 + i]).replace("0x", "").zfill(2)
-            deviceSN = num.upper()
         else:
-            deviceSN = str(deviceSN).upper()  # для MAC-адресов полученных TCP-сервером
+            self._logger.warning(
+                f"[{self.serial_number}] Unknown tag buffer: len={len(arr_buffer)}, first_byte={arr_buffer[0] if arr_buffer else 'N/A'}"
+            )
+            return  # Просто выходим, не обрабатываем
 
         i_length = 0
         for _ in range(tag_count):
@@ -204,10 +231,25 @@ class YanpodoThread(QThread):
 
             if time is None:
                 time = OTime.now()
+            elif isinstance(time, str):
+                try:
+                    # Преобразуем ISO-строку в datetime
+                    dt = datetime.datetime.fromisoformat(time)
+                    # Создаём OTime на основе времени
+                    time = OTime(
+                        day=0,
+                        hour=dt.hour,
+                        minute=dt.minute,
+                        sec=dt.second,
+                        msec=dt.microsecond // 1000
+                    )
+                except Exception as e:
+                    self._logger.error(f"Invalid time format: {time} ({e})")
+                    time = OTime.now()
 
-            card_data = {"epc": epc, "time": time, "sn": deviceSN}
+            card_data = {"epc": epc, "time": time}
             self._logger.info(
-                f"[{threading.current_thread().name}] Tag read: {card_data}"
+                f"[{deviceSN}] Tag read: {card_data}"
             )
 
             # Просто отправляем card_data в очередь без проверки дубликатов
@@ -345,6 +387,31 @@ class YanpodoClient:
             and not self._result_thread.isFinished()
         )
 
+    def _monitor_thread(self, interface, path):
+        """Следит за потоком и перезапускает его при сбое, если не поступила команда на остановку.
+        Сбрасывает счетчик i, если поток проработал более 60 секунд."""
+        i = 0
+        while not self._stop_event.is_set():
+            start_time = time.time()
+            thread = YanpodoThread(
+                interface, path, self._queue, self._stop_event, self._logger
+            )
+            self._yanpodo_threads[path] = thread
+            thread.start()
+            thread.wait()  # Ждём завершения потока
+            elapsed = time.time() - start_time
+            if elapsed > 60:
+                i = 0  # Сбросить счетчик, если поток проработал больше 60 секунд
+            if not self._stop_event.is_set():
+                i += 1
+                if i > 5:
+                    self._logger.error(
+                        f"YanpodoThread on {path} has crashed too many times, stopping monitoring."
+                    )
+                    break
+                self._logger.warning(f"YanpodoThread on {path} crashed, restarting...")
+                time.sleep(3)  # Короткая пауза перед перезапуском
+
     def start(self, interface="USB"):
         self._stop_event.clear()
         paths = []
@@ -366,11 +433,10 @@ class YanpodoClient:
                 or self._yanpodo_threads[path] is None
                 or self._yanpodo_threads[path].isFinished()
             ):
-                thread = YanpodoThread(
-                    interface, path, self._queue, self._stop_event, self._logger
+                t = threading.Thread(
+                    target=self._monitor_thread, args=(interface, path), daemon=True
                 )
-                thread.start()
-                self._yanpodo_threads[path] = thread
+                t.start()
 
         # Всегда запускаем TCP сервер на отдельном порту (например, 9000)
         tcp_port = 8000
