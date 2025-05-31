@@ -1035,6 +1035,9 @@ msgstr "Запустить/остановить чтение чипов SPORTide
 msgid "on/off Sportiduino readout"
 msgstr "Запустить/остановить чтение чипов Sportiduino"
 
+msgid "on/off Yanpodo readout"
+msgstr "Запустить/остановить чтение RFID со считывателей Yanpodo"
+
 msgid "on/off SFR readout"
 msgstr "Запустить/остановить чтение чипов SFR"
 
@@ -1097,6 +1100,9 @@ msgstr "Чип"
 
 msgid "SPORTident readout"
 msgstr "Чтение SPORTident"
+
+msgid "Yanpodo readout"
+msgstr "Чтение Yanpodo"
 
 msgid "Yes"
 msgstr "Да"

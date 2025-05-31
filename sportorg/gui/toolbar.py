@@ -19,6 +19,12 @@ def toolbar_list():
             "sportident",
         ),
         (
+            config.icon_dir("yanpodo.png"),
+            translate("Yanpodo readout"),
+            "YanpodoReadoutAction",
+            "yanpodo",
+        ),
+        (
             config.icon_dir("network-off.svg"),
             translate("Teamwork"),
             "TeamworkEnableAction",

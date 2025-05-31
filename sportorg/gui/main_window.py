@@ -95,9 +95,13 @@ def is_reading_active():
         SIReaderClient().is_alive()
         or SFRReaderClient().is_alive()
         or ImpinjClient().is_alive()
-        or YanpodoClient().is_alive()
         or SportiduinoClient().is_alive()
         or SrpidClient().is_alive()
+    )
+
+def is_reading_active_yapondo():
+    return (
+        YanpodoClient().is_alive()
     )
 
 
@@ -152,6 +156,11 @@ class MainWindow(QMainWindow):
         True: "sportident-on.png",
         False: "sportident.png",
     }
+    yapondo_status = False
+    yanpodo_icon = {
+        True: "yanpodo-on.png",
+        False: "yanpodo.png",
+    }
 
     def teamwork(self, command):
         try:
@@ -166,6 +175,7 @@ class MainWindow(QMainWindow):
                 ObjectTypes.ResultSportiduino.value,
                 ObjectTypes.ResultSrpid.value,
                 ObjectTypes.ResultRfidImpinj.value,
+                ObjectTypes.ResultRfidYanpodo.value,
             ]:
                 self.deleyed_res_recalculate(1000)
 
@@ -188,6 +198,12 @@ class MainWindow(QMainWindow):
                 QtGui.QIcon(
                     config.icon_dir(self.sportident_icon[self.sportident_status])
                 )
+            )
+        if is_reading_active_yapondo() != self.yapondo_status and hasattr(self, "toolbar"):
+            self.yapondo_status = is_reading_active_yapondo()
+
+            self.toolbar_property["yanpodo"].setIcon(
+                QtGui.QIcon(config.icon_dir(self.yanpodo_icon[self.yapondo_status]))
             )
 
         if Teamwork().is_alive() != self.teamwork_status:
