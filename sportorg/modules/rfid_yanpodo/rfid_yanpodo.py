@@ -285,29 +285,55 @@ class ResultThread(QThread):
                         race().get_setting("readout_duplicate_timeout", 5000) / 1000
                     )
 
-                    # Сохраняем только результат с максимальным временем
-                    prev_data = self._epc_data.get(card_id)
-                    if prev_data is None or card_time > prev_data["time"]:
-                        self._epc_data[card_id] = card_data
+                    assignment_mode = race().get_setting("system_assignment_mode", False)
+                    if not assignment_mode:
+                        # Сохраняем только результат с максимальным временем (самй крайний)
+                        prev_data = self._epc_data.get(card_id)
+                        if prev_data is None or card_time > prev_data["time"]:
+                            self._epc_data[card_id] = card_data
 
-                    # Если таймер уже есть, сбрасываем его
-                    if card_id in self._epc_timers:
-                        self._epc_timers[card_id].cancel()
+                        # Если таймер уже есть, сбрасываем его
+                        if card_id in self._epc_timers:
+                            self._epc_timers[card_id].cancel()
 
-                    # Запускаем новый таймер на timeout
-                    def send_result(epc=card_id):
-                        data = self._epc_data.pop(epc, None)
-                        self._epc_timers.pop(epc, None)
-                        if data:
-                            try:
-                                result = self._get_result(data)
-                                self.data_sender.emit(result)
-                            except Exception as e:
-                                self._logger.error(f"Failed to emit result: {e}")
+                        # Запускаем новый таймер на timeout
+                        def send_result(epc=card_id):
+                            data = self._epc_data.pop(epc, None)
+                            self._epc_timers.pop(epc, None)
+                            if data:
+                                try:
+                                    result = self._get_result(data)
+                                    self.data_sender.emit(result)
+                                except Exception as e:
+                                    self._logger.error(f"Failed to emit result: {e}")
 
-                    timer = threading.Timer(timeout, send_result)
-                    self._epc_timers[card_id] = timer
-                    timer.start()
+                        timer = threading.Timer(timeout, send_result)
+                        self._epc_timers[card_id] = timer
+                        timer.start()
+                    else:
+                        # В режиме назначения сразу отправляем результат, но блокируем повторную отправку EPC на 5 секунд
+                        card_id = card_data["epc"]
+                        now = time.time()
+                        block_time = 5  # секунд
+
+                        # Проверяем, был ли этот EPC отправлен недавно
+                        last_sent = self._epc_data.get(card_id, {}).get("last_sent", 0)
+                        if now - last_sent < block_time:
+                            self._logger.debug(f"EPC {card_id} blocked for {block_time - (now - last_sent):.2f} сек")
+                            continue  # Пропускаем отправку
+
+                        try:
+                            result = self._get_result(card_data)
+                            self.data_sender.emit(result)
+                            # Запоминаем время отправки EPC
+                            self._epc_data[card_id] = {"last_sent": now}
+                            # Ставим таймер для разблокировки EPC через 5 секунд
+                            def unblock_epc(epc=card_id):
+                                self._epc_data.pop(epc, None)
+                            timer = threading.Timer(block_time, unblock_epc)
+                            timer.start()
+                        except Exception as e:
+                            self._logger.error(f"Failed to emit result: {e}")
 
             except Empty:
                 if not main_thread().is_alive() or self._stop_event.is_set():
@@ -320,8 +346,8 @@ class ResultThread(QThread):
     def _get_result(card_data):
         result = memory.race().new_result(memory.ResultRfidYanpodo)
 
-        limit = 10**8
-        hex_offset = 5000000
+        limit = 10**7
+        hex_offset = 500000
         epc = str(card_data["epc"]).replace(" ", "")
 
         # Если EPC содержит только цифры, используем их напрямую
