@@ -7,6 +7,8 @@ kanban-plugin: board
 ## Backlog
 
 - [ ] [[Freez chronos tab]]
+- [ ] [[Auto backups]]
+- [ ] [[Deny start if incorrect table]]
 
 
 ## Sprint
