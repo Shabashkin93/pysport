@@ -186,6 +186,9 @@ msgstr "Тип соревнований"
 msgid "Relay legs"
 msgstr "Количество этапов"
 
+msgid "Number of special stages"
+msgstr "Количество спецучастков"
+
 msgid "Chief referee"
 msgstr "Главный судья"
 
@@ -1124,6 +1127,9 @@ msgstr "Гонка преследования"
 
 msgid "Relay"
 msgstr "Эстафета"
+
+msgid "Enduro race"
+msgstr "Эндуро "
 
 msgid "One man relay"
 msgstr "Эстафета одного участника"

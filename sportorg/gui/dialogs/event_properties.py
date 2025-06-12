@@ -81,6 +81,10 @@ class EventPropertiesDialog(QDialog):
         self.item_relay_legs = AdvSpinBox(minimum=1, maximum=20, value=3)
         self.layout.addRow(self.label_relay_legs, self.item_relay_legs)
 
+        self.label_number_of_special_stages = QLabel(translate("Number of special stages"))
+        self.item_number_of_special_stages = AdvSpinBox(minimum=1, maximum=20, value=5)
+        self.layout.addRow(self.label_number_of_special_stages, self.item_number_of_special_stages)
+
         self.item_type.currentTextChanged.connect(self.change_type)
 
         self.label_refery = QLabel(translate("Chief referee"))
@@ -123,6 +127,11 @@ class EventPropertiesDialog(QDialog):
         self.label_relay_legs.setVisible(flag)
         self.item_relay_legs.setVisible(flag)
 
+        flag = self.item_type.currentText() == RaceType.ENDURO_RACE.get_title()
+        self.label_number_of_special_stages.setVisible(flag)
+        self.item_number_of_special_stages.setVisible(flag)
+
+
     def set_values_from_model(self):
         obj = race()
         self.item_main_title.setText(str(obj.data.title))
@@ -135,6 +144,7 @@ class EventPropertiesDialog(QDialog):
         self.item_end_date.setDateTime(obj.data.get_end_datetime())
         self.item_type.setCurrentText(obj.data.race_type.get_title())
         self.item_relay_legs.setValue(obj.data.relay_leg_count)
+        self.item_number_of_special_stages.setValue(obj.data.special_stages_count)
         self.change_type()
 
     def apply_changes_impl(self):
@@ -161,6 +171,7 @@ class EventPropertiesDialog(QDialog):
                 group.race_type = new_race_type
 
         obj.data.relay_leg_count = self.item_relay_legs.value()
+        obj.data.special_stages_count = self.item_number_of_special_stages.value()
 
         obj.set_setting("system_zero_time", (start_date.hour, start_date.minute, 0))
 

@@ -72,6 +72,7 @@ class RaceType(_TitleType):
     # ONE_MAN_RELAY = 4
     # SPRINT_RELAY = 5
     MULTI_DAY_RACE = 6
+    ENDURO_RACE = 7
 
 
 class ResultStatus(_TitleType):
@@ -1542,6 +1543,7 @@ class RaceData(Model):
         self.start_datetime: Optional[datetime.datetime] = None
         self.end_datetime: Optional[datetime.datetime] = None
         self.relay_leg_count = 3
+        self.special_stages_count = 5
 
     def __repr__(self) -> str:
         return "Race {}".format(self.title)
@@ -1575,6 +1577,7 @@ class RaceData(Model):
             "start_datetime": str(self.start_datetime) if self.start_datetime else None,
             "end_datetime": str(self.end_datetime) if self.end_datetime else None,
             "relay_leg_count": self.relay_leg_count,
+            "special_stages_count": self.special_stages_count,
         }
 
     def update_data(self, data):
@@ -1586,6 +1589,7 @@ class RaceData(Model):
         self.url = str(data["url"])
         self.race_type = RaceType(int(data["race_type"]))
         self.relay_leg_count = int(data["relay_leg_count"])
+        self.special_stages_count = int(data["special_stages_count"])
         if data["start_datetime"]:
             self.start_datetime = dateutil.parser.parse(data["start_datetime"])
         if data["end_datetime"]:
