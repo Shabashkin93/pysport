@@ -1589,8 +1589,6 @@ class RaceData(Model):
         self.url = str(data["url"])
         self.race_type = RaceType(int(data["race_type"]))
         self.relay_leg_count = int(data["relay_leg_count"])
-        if data["special_stages_count"]:
-            self.special_stages_count = int(data["special_stages_count"])
         if data["start_datetime"]:
             self.start_datetime = dateutil.parser.parse(data["start_datetime"])
         if data["end_datetime"]:
