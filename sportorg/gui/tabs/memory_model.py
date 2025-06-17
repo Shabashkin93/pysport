@@ -14,7 +14,7 @@ from sportorg.language import translate
 from sportorg.models.constant import RentCards
 from sportorg.models.memory import race
 from sportorg.utils.time import time_to_hhmmss
-
+from sportorg.models.memory import RaceType
 
 class AbstractSportOrgMemoryModel(QAbstractTableModel):
     """
@@ -252,7 +252,9 @@ class PersonMemoryModel(AbstractSportOrgMemoryModel):
         self.init_cache()
 
     def get_headers(self):
-        return [
+        # print(self.special_stages_count)
+
+        main_headers = [
             translate("Last name"),
             translate("First name"),
             translate("Middle name"),
@@ -271,6 +273,16 @@ class PersonMemoryModel(AbstractSportOrgMemoryModel):
             translate("Out of competition title"),
             translate("Result count title"),
         ]
+
+        if self.race.data.race_type == RaceType.ENDURO_RACE:
+            special_stages_count = int(self.race.data.special_stages_count or 0)
+            for i in range(special_stages_count):
+                header = translate(f"SU {i + 1}")
+                main_headers.append(header)
+            self.c_count = len(main_headers)
+
+        return main_headers
+
 
     def init_cache(self):
         self.cache.clear()
