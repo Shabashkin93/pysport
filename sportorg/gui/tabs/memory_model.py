@@ -14,7 +14,7 @@ from sportorg.language import translate
 from sportorg.models.constant import RentCards
 from sportorg.models.memory import race
 from sportorg.utils.time import time_to_hhmmss
-
+from sportorg.models.memory import RaceType
 
 class AbstractSportOrgMemoryModel(QAbstractTableModel):
     """
@@ -252,7 +252,9 @@ class PersonMemoryModel(AbstractSportOrgMemoryModel):
         self.init_cache()
 
     def get_headers(self):
-        return [
+        # print(self.special_stages_count)
+
+        main_headers = [
             translate("Last name"),
             translate("First name"),
             translate("Middle name"),
@@ -271,6 +273,26 @@ class PersonMemoryModel(AbstractSportOrgMemoryModel):
             translate("Out of competition title"),
             translate("Result count title"),
         ]
+
+        # Add debug logging
+        logging.debug(f"Race type: {self.race.data.race_type}")
+        logging.debug(f"Expected type: {RaceType.ENDURO_RACE}")
+        logging.debug(f"Comparison result: {self.race.data.race_type == RaceType.ENDURO_RACE}")
+        logging.debug(f"Special stages count: {self.race.data.special_stages_count}")
+
+        # fucking python not added headers if this checks exists, and correct added if delete this string
+        if self.race.data.race_type == RaceType.ENDURO_RACE:
+            special_stages_count = int(self.race.data.special_stages_count or 0)
+            logging.debug(f"Adding {special_stages_count} special stages")
+            for i in range(special_stages_count):
+                header = translate(f"SU {i + 1}")
+                main_headers.append(header)
+                logging.debug(f"Added header: {header}, current count: {len(main_headers)}")
+
+        logging.debug(f"Final headers: {main_headers}")
+
+        return main_headers
+
 
     def init_cache(self):
         self.cache.clear()
